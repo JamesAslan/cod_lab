@@ -3,7 +3,7 @@ module reg_a(
     input rst,
     input en,
     input din,
-    output reg q
+    output reg[] q
 );
 
 always @(posedge clk)
