@@ -57,8 +57,6 @@
 `define MTLO 6'b010011
 `define MULT 6'b011000
 `define MULTU 6'b011001
-`define DIV 6'b011010
-`define DIVU 6'b011011
 
 module mycpu_top(
 	input  resetn,
@@ -242,7 +240,7 @@ module mycpu_top(
 	wire pipe2_readyout;
 	wire pipe2_outvalid;
 	assign pipe2_allowin = !pipe2_valid || (pipe3_allowin && pipe2_readyout);
-	assign pipe2_readyout = !counter_forwarding && !counter_lw_choke && !counter_div_choke && !counter_mul_choke;
+	assign pipe2_readyout = !counter_forwarding && !counter_lw_choke;
 	assign pipe2_outvalid = pipe2_valid && pipe2_readyout;
 	always @(posedge clk)
 	begin
@@ -264,8 +262,6 @@ module mycpu_top(
 			aluop_decode_reg <= 12'b0;
 			op_mul_reg <= 1'b0;
 			mul_signed_reg <= 1'b0;
-			op_div_reg <= 1'b0;
-			div_signed_reg <= 1'b0;
 			pipe2_PC <= 32'b0;
 			pipe2_data <= 32'b0;
 			sign_extend_reg <= 32'b0;
@@ -286,8 +282,6 @@ module mycpu_top(
 			aluop_decode_reg <= aluop_decode;
 			op_mul_reg <= op_mul;
 			mul_signed_reg <= mul_signed;
-			op_div_reg <= op_div;
-			div_signed_reg <= div_signed;
 			pipe2_PC <= pipe1_PC;
 			pipe2_data <= pipe2_data_in;
 			sign_extend_reg <= sign_extend;
@@ -308,8 +302,6 @@ module mycpu_top(
 			aluop_decode_reg <= aluop_decode_reg;
 			op_mul_reg <= op_mul_reg;
 			mul_signed_reg <= mul_signed_reg;
-			op_div_reg <= op_div_reg;
-			div_signed_reg <= div_signed_reg;
 			pipe2_PC <= pipe2_PC;
 			pipe2_data <= pipe2_data;
 			sign_extend_reg <= sign_extend_reg;
@@ -886,7 +878,7 @@ module mycpu_top(
 	reg reg_write3;
 	reg reg_write4;
 	wire reg_write;
-	assign reg_write = ((inst_op == 6'b0 && inst_constent == `JR) || inst_op ==`BEQ || inst_op == `BNE || inst_op == `SW || ((inst_op == 6'b0) && (inst_constent == `MULT) && (pipe2_data_in[15:6]==10'b0)) || ((inst_op == 6'b0) && (inst_constent == `MULTU) && (pipe2_data_in[15:6]==10'b0))|| ((inst_op == 6'b0) && (inst_constent == `DIV) && (pipe2_data_in[15:6]==10'b0)) || ((inst_op == 6'b0) && (inst_constent == `DIVU) && (pipe2_data_in[15:6]==10'b0))|| mthi || mtlo) ? 1'b0:
+	assign reg_write = ((inst_op == 6'b0 && inst_constent == `JR) || inst_op ==`BEQ || inst_op == `BNE || inst_op == `SW || (inst_op == 6'b0 && inst_constent == `MULT && pipe2_data_in[15:6]==10'b0) || (inst_op == 6'b0 && inst_constent == `MULTU && pipe2_data_in[15:6]==10'b0) || mthi || mtlo) ? 1'b0:
 						1'b1;
 
 	assign wen = reg_write4 && pipe4_readyout;//////////////?????????????????????????????????????
@@ -1038,24 +1030,18 @@ module mycpu_top(
 		end
     end
 
-	assign LO_wen = op_mul_reg || mtlo_reg || (op_div_reg && div_complete);
-	assign HI_wen = op_mul_reg || mthi_reg || (op_div_reg && div_complete);
+	assign LO_wen = op_mul_reg || mtlo_reg;
+	assign HI_wen = op_mul_reg || mthi_reg;
 
-	assign LO_data = ({32{mtlo_reg}} & rdata1_reg) |
-					 ({32{op_mul_reg}} & mul_result[31:0]) |
-					 ({32{op_div_reg}} & div_q) |
-					 32'b0;
-	assign HI_data = ({32{mthi_reg}} & rdata1_reg) |
-					 ({32{op_mul_reg}} & mul_result[63:32]) |
-					 ({32{op_div_reg}} & div_r) |
-					 32'b0;
+	assign LO_data = mtlo_reg ? rdata1_reg : mul_result[31:0];
+	assign HI_data = mthi_reg ? rdata1_reg : mul_result[63:32];
 
 	wire mthi;
 	wire mtlo;
 	reg mthi_reg;
 	reg mtlo_reg;
-	assign mthi = ((inst_op == 6'b0) && (inst_constent == `MTHI) && (pipe2_data_in[20:6]==15'b0)) ? 1'b1 : 1'b0;
-	assign mtlo = ((inst_op == 6'b0) && (inst_constent == `MTLO) && (pipe2_data_in[20:6]==15'b0)) ? 1'b1 : 1'b0;
+	assign mthi = (inst_op == 6'b0 && inst_constent == `MTHI && pipe2_data_in[20:6]==15'b0) ? 1'b1 : 1'b0;
+	assign mtlo = (inst_op == 6'b0 && inst_constent == `MTLO && pipe2_data_in[20:6]==15'b0) ? 1'b1 : 1'b0;
 
 	//////////////////////////////
 
@@ -1067,10 +1053,10 @@ module mycpu_top(
 	wire op_mul;
 	reg op_mul_reg;
 
-	assign op_mul = ((inst_op == 6'b0) && (inst_constent == `MULT) && (pipe2_data_in[15:6]==10'b0)) |
-					((inst_op == 6'b0) && (inst_constent == `MULTU) && (pipe2_data_in[15:6]==10'b0)) |
+	assign op_mul = (inst_op == 6'b0 && inst_constent == `MULT && pipe2_data_in[15:6]==10'b0) |
+					(inst_op == 6'b0 && inst_constent == `MULTU && pipe2_data_in[15:6]==10'b0) |
 					1'b0;
-	assign mul_signed = ((inst_op == 6'b0) && (inst_constent == `MULT) && (pipe2_data_in[15:6]==10'b0)) |
+	assign mul_signed = (inst_op == 6'b0 && inst_constent == `MULT && pipe2_data_in[15:6]==10'b0) |
 						1'b0;
 
 	assign mul_x = {32{op_mul_reg}} & rdata1_reg;
@@ -1078,71 +1064,5 @@ module mycpu_top(
 
 
 	mul mul(clk, resetn, mul_signed_reg, mul_x, mul_y, mul_result); 
-
-	reg counter_mul_choke;
-	always@(posedge clk)
-	begin
-		if(rst || !op_mul_reg)
-		begin
-			counter_mul_choke <= 1'b0; 
-		end
-		else if (counter_div_choke == 1'b1)
-		begin
-			counter_mul_choke <= 1'b0; 
-		end
-		else if(op_mul_reg)
-		begin
-			counter_mul_choke <= counter_mul_choke + 6'b1;
-		end
-		else 
-		begin
-			counter_mul_choke <= counter_mul_choke;
-		end
-	end
-
-	//////////////////////////////
-	wire [31:0] div_x;
-	wire [31:0] div_y;
-	wire [31:0] div_q;
-	wire [31:0] div_r;
-	wire div_complete;
-	wire div_signed;
-	reg div_signed_reg;
-	wire op_div;
-	reg op_div_reg;
-	assign op_div = ((inst_op == 6'b0) && (inst_constent == `DIV )&& (pipe2_data_in[15:6]==10'b0)) |
-					((inst_op == 6'b0) && (inst_constent == `DIVU )&& (pipe2_data_in[15:6]==10'b0)) |
-					1'b0;
-	assign div_signed = ((inst_op == 6'b0) && (inst_constent == `DIV) && (pipe2_data_in[15:6]==10'b0)) |
-						1'b0;
-
-	assign div_x = {32{op_div_reg}} & rdata1_reg;
-	assign div_y = {32{op_div_reg}} & rdata2_reg;
-
-	wire div_input;
-	assign div_input = op_div_reg && !counter_forwarding;
-
-	div div(clk, resetn,div_input,div_signed_reg,div_x,div_y,div_q,div_r,div_complete); 
-
-	reg [5:0]counter_div_choke;
-	always@(posedge clk)
-	begin
-		if(rst || div_complete || !op_div_reg)
-		begin
-			counter_div_choke <= 6'b0; 
-		end
-		else if (counter_div_choke == 6'd34)
-		begin
-			counter_div_choke <= 6'b0; 
-		end
-		else if(op_div_reg)
-		begin
-			counter_div_choke <= counter_div_choke + 6'b1;
-		end
-		else 
-		begin
-			counter_div_choke <= counter_div_choke;
-		end
-	end
 
 endmodule

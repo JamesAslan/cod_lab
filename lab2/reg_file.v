@@ -28,8 +28,9 @@ module reg_file(
 		begin 
 			r[waddr] <= wdata;
 		end
-    	end
-		assign rdata1 = (raddr1)?r[raddr1]:32'b0;
-		assign rdata2 = (raddr2)?r[raddr2]:32'b0;
+    end
+
+	assign rdata1 = (raddr1)?r[raddr1]:32'b0;
+	assign rdata2 = (raddr2)?r[raddr2]:32'b0;
 
 endmodule

@@ -126,7 +126,7 @@ module mycpu_top(
 	wire pipe1_readyout;
 	wire pipe1_outvalid;
 	assign pipe1_allowin = !pipe1_valid || (pipe2_allowin && pipe1_readyout);
-	assign pipe1_readyout = counter[1];
+	assign pipe1_readyout = counter[0];
 	assign pipe1_outvalid = pipe1_valid && pipe1_readyout;
 	always @(posedge clk)
 	begin
@@ -576,7 +576,9 @@ module mycpu_top(
 	wire PC_write;
 	wire PC_choose;
 
-	assign PC = PC_reg;
+	assign PC = ({32{branch_or_not && pipe2_valid}}&(pipe1_PC + Shift_left2_reg)) |
+				({32{jump_or_not && pipe2_valid}}&(jump_target)) |
+	 			PC_reg;
 
 	always @(posedge clk)
 	begin

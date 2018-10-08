@@ -94,7 +94,7 @@ module mycpu_top(
 	assign Read_data_Valid = 1'b1;
 	assign Mem_Req_Ack = 1'b1;
 	wire validin;
-	assign validin = pipe2_valid ? (!branch_or_not) : 1'b1;
+	assign validin = 1'b1;
 
 
 	assign inst_sram_wdata = 32'b0;
@@ -126,7 +126,7 @@ module mycpu_top(
 	wire pipe1_readyout;
 	wire pipe1_outvalid;
 	assign pipe1_allowin = !pipe1_valid || (pipe2_allowin && pipe1_readyout);
-	assign pipe1_readyout = counter[1];
+	assign pipe1_readyout = counter[0];
 	assign pipe1_outvalid = pipe1_valid && pipe1_readyout;
 	always @(posedge clk)
 	begin
@@ -145,12 +145,29 @@ module mycpu_top(
 		if(validin && pipe1_allowin)//////////////////////////////????????????????????//
 		begin
 			pipe1_data <= Instruction;
-			pipe1_PC <= PC_reg;
+			pipe1_PC <= PC;
 		end
 		else
 		begin
 			pipe1_data <= pipe1_data;
 			pipe1_PC <= pipe1_PC;
+		end
+	end
+
+	reg [1:0]counter_choke;
+	always@(posedge clk)
+	begin
+		if(rst || pipe1_allowin )
+		begin
+			counter_choke <= 2'b0;
+		end
+		else if(!pipe1_allowin)
+		begin
+			counter_choke <= 2'b1;
+		end
+		else 
+		begin
+			counter_choke <= counter;
 		end
 	end
 
@@ -204,7 +221,7 @@ module mycpu_top(
 		begin
 			aluop_decode_reg <= aluop_decode;
 			pipe2_PC <= pipe1_PC;
-			pipe2_data <= pipe1_data;
+			pipe2_data <= pipe2_data_in;
 			sign_extend_reg <= sign_extend;
 			Shift_left2_reg <= Shift_left2;
 			alu_B_mux_reg <= alu_B_mux;
@@ -237,6 +254,10 @@ module mycpu_top(
 			branch_or_not_reg <= branch_or_not_reg;
 		end
 	end
+
+	wire [31:0] pipe2_data_in;
+	assign pipe2_data_in = counter_choke ? pipe1_data : Instruction;
+
 
 	//////////////////////////////////////////////////////
 	//  pipe3
@@ -314,7 +335,7 @@ module mycpu_top(
 	wire pipe4_readyout;
 	wire pipe4_outvalid;
 	assign pipe4_allowin = !pipe4_valid || pipe4_readyout;
-	assign pipe4_readyout = counter4;
+	assign pipe4_readyout = 1'b1;
 	assign pipe4_outvalid = pipe4_valid && pipe4_readyout;
 	always @(posedge clk)
 	begin
@@ -440,15 +461,15 @@ module mycpu_top(
 	
 
 	wire [5:0] inst_constent;
-	assign inst_constent = pipe1_data[5:0]; //从pipe1中取得指令
+	assign inst_constent = pipe2_data_in[5:0]; //从pipe1中取得指令
 
 	wire [5:0] inst_op;
-	assign inst_op = pipe1_data[31:26]; //从pipe1中取得指令
+	assign inst_op = pipe2_data_in[31:26]; //从pipe1中取得指令
 	
 	//////sign_extend
 	wire [31:0] sign_extend; 
-	assign sign_extend = (pipe1_data[31:26]==6'b001100 || pipe1_data[31:26]==6'b001101 || pipe1_data[31:26]==6'b001110)?{16'b0,pipe1_data[15:0]}:
-						 (pipe1_data[15])?{16'hffff,pipe1_data[15:0]}:{16'b0,pipe1_data[15:0]};
+	assign sign_extend = (pipe2_data_in[31:26]==6'b001100 || pipe2_data_in[31:26]==6'b001101 || pipe2_data_in[31:26]==6'b001110)?{16'b0,pipe2_data_in[15:0]}:
+						 (pipe2_data_in[15])?{16'hffff,pipe2_data_in[15:0]}:{16'b0,pipe2_data_in[15:0]};
 
 	//////Shift_left2
 	wire [31:0] Shift_left2;
@@ -465,8 +486,6 @@ module mycpu_top(
 	assign alu_A_mux = (inst_op == `JAL) ? 2'b01 : 
 						(op_sll || op_srl || op_sra) ? 2'b11 :
 						2'b00;
-	//wire jump;
-	//assign jump = 
 
 
 
@@ -534,8 +553,8 @@ module mycpu_top(
 	wire [`DATA_WIDTH - 1:0] rdata2;
 	reg_file registers(clk,rst,waddr,raddr1,raddr2,wen,wdata,rdata1,rdata2);
 	
-	assign raddr1 = pipe1_data[25:21];
-	assign raddr2 = pipe1_data[20:16];
+	assign raddr1 = pipe2_data_in[25:21]; ///////////////
+	assign raddr2 = pipe2_data_in[20:16]; ////////////////
 
 	reg [31:0] rdata1_reg;
 	reg [31:0] rdata2_reg;
@@ -575,8 +594,14 @@ module mycpu_top(
 	reg [31:0] PC_reg;
 	wire PC_write;
 	wire PC_choose;
+	wire PC_change;
 
-	assign PC = PC_reg;
+	assign PC = ({32{branch_or_not && pipe2_valid}} & (pipe1_PC + Shift_left2_reg)) |
+				({32{jump_or_not && pipe2_valid}} & (jump_target)) |
+	 			({32{!PC_change}} & PC_reg);
+
+	wire [31:0] PC_branchafter;
+	assign PC_branchafter = counter_choke ? pipe1_PC + Shift_left2_reg : pipe1_PC + Shift_left2_reg +32'd4;
 
 	always @(posedge clk)
 	begin
@@ -584,11 +609,19 @@ module mycpu_top(
 		begin 
 			PC_reg <= 32'hbfc00000;	
 		end
-		else if (branch_or_not && pipe2_valid)
+		else if (branch_or_not && pipe2_valid && pipe1_allowin) ////////////////?????????????????????!!!!!!!!!!!!!!!!!!!!
+		begin
+			PC_reg <= pipe1_PC + Shift_left2_reg +32'd4;
+		end
+		else if (branch_or_not && pipe2_valid) ////////////////?????????????????????!!!!!!!!!!!!!!!!!!!!
 		begin
 			PC_reg <= pipe1_PC + Shift_left2_reg;
 		end
-		else if (jump_or_not && pipe2_valid)
+		else if (jump_or_not && pipe2_valid && pipe1_allowin)
+		begin
+			PC_reg <= jump_target +32'd4;
+		end
+		else if (jump_or_not && pipe2_valid) ////////////////?????????????????????!!!!!!!!!!!!!!!!!!!!
 		begin
 			PC_reg <= jump_target;
 		end
@@ -626,7 +659,7 @@ module mycpu_top(
 	assign jump_target = ({32{jal == 1'b1}} & {pipe2_PC[31:28],pipe2_data[25:0],2'b0}) |
 						({32{jr == 1'b1}} & rdata1_reg) 	;
 	
-	
+	assign PC_change = (jump_or_not || branch_or_not) && pipe2_valid;
 	
 	
 	
