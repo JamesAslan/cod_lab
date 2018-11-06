@@ -1,25 +1,22 @@
-    wire lw_choke;
-	assign lw_choke = ((((raddr1 == waddr_dst2) && (raddr1 != 5'b0)) ? 1'b1:1'b0) && (pipe2_data[31:26] == `LW) && reg_write2 && !counter_forwarding ) ||
-					  ((((raddr2 == waddr_dst2) && (raddr2 != 5'b0)) ? 1'b1:1'b0) && (pipe2_data[31:26] == `LW) && (pipe2_data_in[31:26] == 6'b0 || pipe2_data_in[31:26] == `BNE || pipe2_data_in[31:26] == `BEQ || pipe2_data_in[31:26] == `SW) && reg_write2 && !counter_forwarding);
+wire[31:0] swl_data;
+wire[31:0] swr_data;
+wire[31:0] sb_data;
+wire[31:0] sh_data;
 
+assign swl_data = 	({32{ALU_out3[1:0] == 2'b00}} & {24'b0,Data[31:24]}) |
+					({32{ALU_out3[1:0] == 2'b01}} & {16'b0,Data[31:16]}) |
+					({32{ALU_out3[1:0] == 2'b10}} & {8'b0,Data[31:8]}) |
+					({32{ALU_out3[1:0] == 2'b11}} & Data) ;
 
-	reg [1:0]counter_lw_choke;
-	always@(posedge clk)
-	begin
-		if(rst )
-		begin
-			counter_lw_choke <= 2'b0;
-		end
-		else if(lw_choke)
-		begin
-			counter_lw_choke <= counter_lw_choke + 2'b1;
-		end
-		else if(counter_lw_choke == 2'b0)
-		begin
-			counter_lw_choke <= 2'b0;
-		end
-		else
-		begin
-			counter_lw_choke <= counter_lw_choke + 2'b1;
-		end
-	end
+assign swr_data =	({32{ALU_out3[1:0] == 2'b00}} & Data) |
+					({32{ALU_out3[1:0] == 2'b01}} & {Data[23:0],8'b0}) |
+					({32{ALU_out3[1:0] == 2'b10}} & {Data[15:0],16'b0}) |
+					({32{ALU_out3[1:0] == 2'b11}} & {Data[7:0],24'b0}) ;	
+
+assign sb_data = 	({32{ALU_out3[1:0] == 2'b00}} & Data) |
+					({32{ALU_out3[1:0] == 2'b01}} & {Data[23:0],8'b0}) |
+					({32{ALU_out3[1:0] == 2'b10}} & {Data[15:0],16'b0}) |
+					({32{ALU_out3[1:0] == 2'b11}} & {Data[7:0],24'b0}) ;
+
+assign sh_data =    ({32{ALU_out3[1]}} & Data) |
+					({32{ALU_out3[1]}} & {Data[15:0],16'b0});		
