@@ -21,6 +21,7 @@ module mycpu_top
     input     [1 :0] data_size   ,
     input     [31:0] data_addr   ,
     input     [31:0] data_wdata  ,
+    input     [3:0 ] data_wstrb  ,
     output    [31:0] data_rdata  ,
     output           data_addr_ok,
     output           data_data_ok,
@@ -94,6 +95,7 @@ mycpu mycpu(
     data_size   ,
     data_addr   ,
     data_wdata  ,
+    data_wstrb  ,
     data_rdata  ,
     data_addr_ok,
     data_data_ok,
@@ -221,6 +223,19 @@ mycpu mycpu(
         else if(data_addr_ok)
         begin
             data_wdata_reg <= data_wdata;
+        end
+    end
+
+    reg [3:0] data_wstrb_reg;
+    always @(posedge aclk)
+    begin
+        if(rst)
+        begin
+            data_wstrb_reg <= 4'b0;
+        end
+        else if(data_addr_ok)
+        begin
+            data_wstrb_reg <= data_wstrb;
         end
     end
 
@@ -363,7 +378,7 @@ mycpu mycpu(
     end
 
     assign wdata    = data_wdata_reg;
-    assign wstrb    = task_wstrb_reg;
+    assign wstrb    = data_wstrb_reg;
 
     always @(posedge aclk)
     begin

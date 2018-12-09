@@ -90,7 +90,7 @@ module mycpu(
     output [1:0] data_sram_size,  ///////////////////
 	output [31:0] data_sram_addr,
 	output [31:0] data_sram_wdata,
-	//output [3:0] data_sram_wen,
+	output [3:0] data_sram_wen,
 	input  [31:0] data_sram_rdata,
     input  data_sram_addr_ok,  /////////////////
     input  data_sram_data_ok,  ////////////////
@@ -135,7 +135,8 @@ module mycpu(
 	//assign inst_sram_wen =4'b0;
 	assign inst_sram_addr = PC;
 	assign Instruction = inst_sram_rdata;
-	assign inst_sram_en = inst_state[0] && resetn && !branch_valid;
+	assign inst_sram_en = (inst_state[0] /*|| (irp_counter3 == 2'b11)*/) && resetn && !branch_valid && ((!syscall_info2 && !break_info2 && !irp_ip1_2 && !irp_ip0_2  && !irp_inst2 && !irp_time2 && irp_support2 && !irp_overflow && !irp_address_lw && !irp_address_sw) || pipe1_allowin);
+    //&& !irp_ip2_2 && !irp_ip3_2 && !irp_ip4_2 && !irp_ip5_2 && !irp_ip6_2 && !irp_ip7_2 
 
 	assign data_sram_en = (MemRead | MemWrite) && data_state[0];
     assign data_sram_wr = MemWrite;
@@ -145,7 +146,7 @@ module mycpu(
 	assign data_sram_wdata = Write_data;
 
 	assign debug_wb_pc = pipe4_PC;
-	assign debug_wb_rf_wen = {wen,wen,wen,wen} & {debug ,debug ,debug ,debug };///////////////?????????
+	assign debug_wb_rf_wen = {wen,wen,wen,wen} & {debug_input ,debug_input ,debug_input ,debug_input };///////////////?????????
 	assign debug_wb_rf_wnum = waddr;
 	assign debug_wb_rf_wdata = wdata;
 
@@ -172,7 +173,7 @@ module mycpu(
         begin
             inst_state <= 3'b010;
         end
-        else if((inst_state == 3'b010) && (inst_sram_data_ok))
+        else if((inst_state == 3'b010) && (inst_sram_data_ok) )//&& irp_counter3[0])
         begin
             inst_state <= 3'b000;
         end
@@ -217,6 +218,44 @@ module mycpu(
 	end
 	wire debug;
 	assign debug = (pipe4_PC == debug_decide) ? 1'b0 : 1'b1;
+    wire debug_input;
+    assign debug_input = debug ;//&& (debug_modify == 2'b00))||debug2;
+
+    /*reg[1:0] debug_modify;
+    always @(posedge clk)
+	begin
+		if(rst)
+		begin
+			debug_modify <= 2'b00;
+		end
+		else if(debug_modify == 2'b00 && irp_counter3 == 2'b10)
+		begin
+			debug_modify <= 2'b01;
+		end
+        else if(debug_modify == 2'b01 && debug)
+        begin
+			debug_modify <= 2'b10;
+		end
+        else if(debug_modify == 2'b10 && debug2)
+        begin
+			debug_modify <= 2'b00;
+		end
+	end
+
+    reg[31:0] debug_decide2;
+	always @(posedge clk)
+	begin
+		if(rst)
+		begin
+			debug_decide2 <= 32'b0;
+		end
+		else 
+		begin
+			debug_decide2 <= pipe4_data;
+		end
+	end
+    wire debug2;
+	assign debug2 = (pipe4_data != debug_decide2) && (debug_modify == 2'b10);*/
 
 	////////////////////////////////////////////////////////////////////
 	//  pipe1
@@ -235,17 +274,13 @@ module mycpu(
 		begin
 			pipe1_valid <= 1'b1;
 		end
-		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3 || ((pipe2_data_in[31:26] == 6'b010000) && (pipe2_data_in[25] == 1'b1) && (pipe2_data_in[24:6] == 19'b0) &&(pipe2_data_in[5:0] == `ERET))) && pipe3_valid)
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3 || ((pipe2_data_in[31:26] == 6'b010000) && (pipe2_data_in[25] == 1'b1) && (pipe2_data_in[24:6] == 19'b0) &&(pipe2_data_in[5:0] == `ERET))) && pipe3_valid)
 		begin
 			pipe1_valid <= 1'b0;
 		end
 		else if(pipe1_allowin)
 		begin
 			pipe1_valid <= validin;
-		end
-		else
-		begin
-			pipe1_valid <= pipe1_valid;
 		end
 		if(rst)
 		begin
@@ -257,16 +292,11 @@ module mycpu(
 			pipe1_PC <= PC;
 			irp_inst1 <= irp_inst;
 		end
-		else
-		begin
-			pipe1_PC <= pipe1_PC;
-			irp_inst1 <= irp_inst1;
-		end
 		if(rst)
 		begin
 			pipe1_data <=32'b0;
 		end
-		else if((validin && pipe1_allowin) || (pipe1_allowin != !counter_choke))//////////////////////////////????????????????????//
+		else if((validin && pipe1_allowin) || (pipe1_allowin != !counter_choke) || (irp_counter != 2'd1))//////////////////////////////????????????????????//
 		begin
 			pipe1_data <= Instruction;
 		end
@@ -331,7 +361,7 @@ module mycpu(
 		begin
 			pipe2_valid <= 1'b0;
 		end
-		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
 		begin
 			pipe2_valid <= 1'b0;
 		end
@@ -357,7 +387,7 @@ module mycpu(
 			irp_ip6_2 <= 1'b0;
 			irp_ip7_2 <= 1'b0;
 			irp_inst2 <= 1'b0;
-			irp_support2 <= 1'b0;
+			irp_support2 <= 1'b1;
 			irp_time2 <= 1'b0;
 			break_info2 <= 1'b0;
 			syscall_info2 <= 1'b0;
@@ -403,12 +433,12 @@ module mycpu(
 			irp_ip2 <= irp_ip;
 			irp_ip0_2 <= irp_ip0_reg || irp_ip[0];
 			irp_ip1_2 <= irp_ip1_reg || irp_ip[1];
-			irp_ip2_2 <= irp_ip2_reg || irp_ip[2];
-			irp_ip3_2 <= irp_ip3_reg || irp_ip[3];
-			irp_ip4_2 <= irp_ip4_reg || irp_ip[4];
-			irp_ip5_2 <= irp_ip5_reg || irp_ip[5];
-			irp_ip6_2 <= irp_ip6_reg || irp_ip[6];
-			irp_ip7_2 <= irp_ip7_reg || irp_ip[7];
+			irp_ip2_2 <= irp_ip[2]; //irp_ip2_reg || irp_ip[2];
+			irp_ip3_2 <= irp_ip[3]; //irp_ip3_reg || irp_ip[3];
+			irp_ip4_2 <= irp_ip[4]; //irp_ip4_reg || irp_ip[4];
+			irp_ip5_2 <= irp_ip[5]; //irp_ip5_reg || irp_ip[5];
+			irp_ip6_2 <= irp_ip[6]; //irp_ip6_reg || irp_ip[6];
+			irp_ip7_2 <= irp_ip[7]; //irp_ip7_reg || irp_ip[7];
 			irp_inst2 <= irp_inst1;
 			irp_support2 <= irp_support;
 			irp_time2 <= irp_time || irp_time_reg;
@@ -421,9 +451,9 @@ module mycpu(
 			cp0_wen_count2 <= cp0_wen_count;
 			cp0_wen_compare2 <= cp0_wen_compare;
 			aluop_decode_reg <= aluop_decode;
-			op_mul_reg <= (op_mul && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3));
+			op_mul_reg <= (op_mul && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3));
 			mul_signed_reg <= mul_signed;
-			op_div_reg <= (op_div && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3));//////////////////////////////////////////////?????????????????????????????????????
+			op_div_reg <= (op_div && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3) && !(irp_ip2_2 || irp_ip3_2 || irp_ip4_2 || irp_ip5_2 || irp_ip6_2 || irp_ip7_2 || irp_ip1_2|| irp_ip0_2 || irp_address_sw || irp_address_lw || irp_inst2 || !irp_support2 || irp_time2 || irp_overflow || break_info2 || syscall_info2));//////////////////////////////////////////////?????????????????????????????????????
 			div_signed_reg <= div_signed;
 			pipe2_PC <= pipe1_PC;
 			pipe2_data <= pipe2_data_in;
@@ -488,7 +518,7 @@ module mycpu(
 			begin
 				rdata1_reg <= rdata1_reg;
 			end
-			if(((pipe1_outvalid && pipe2_allowin) || forward_pipe3_r2_reg || forward_pipe4_r2_reg || forward_wait5_r2_reg) && !counter_div_choke)
+			if(((pipe1_outvalid && pipe2_allowin) || forward_pipe3_r2_reg || forward_pipe4_r2_reg || forward_wait5_r2_reg) && (!counter_div_choke || div_complete))
 			begin				
 				rdata2_reg <= rdata2_input;	
 			end
@@ -558,7 +588,7 @@ module mycpu(
 		begin
 			pipe3_valid <= 1'b0;
 		end
-		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
 		begin
 			pipe3_valid <= 1'b0;
 		end
@@ -709,7 +739,7 @@ module mycpu(
 		begin
 			pipe4_valid <= 1'b0;
 		end
-		else if(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3)
+		else if(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3)
 		begin
 			pipe4_valid <= 1'b0;
 		end
@@ -1182,7 +1212,7 @@ module mycpu(
 		begin
 			irp_ip0_reg <= 1'b0;
 		end
-		else if(irp_ip[0] && !pipe2_valid)
+		else if(irp_ip[0] && !pipe2_valid && !irp_ip0_3)
 		begin
 			irp_ip0_reg <= 1'b1;
 		end
@@ -1195,7 +1225,7 @@ module mycpu(
 		begin
 			irp_ip1_reg <= 1'b0;
 		end
-		else if(irp_ip[1] && !pipe2_valid)
+		else if(irp_ip[1] && !pipe2_valid && !irp_ip1_3)
 		begin
 			irp_ip1_reg <= 1'b1;
 		end
@@ -1309,7 +1339,7 @@ module mycpu(
 	assign alu_A = ({32{alu_A_mux_reg == 2'b01}} & pipe1_PC ) | 
 					({32{alu_A_mux_reg == 2'b11}} & {27'b0,pipe2_data[10:6]}) | 
 					({32{alu_A_mux_reg == 2'b00}} & alu_A_input);
-	assign alu_B = (alu_B_mux_reg == 2'b00) ? alu_B_input:
+	assign alu_B =  (alu_B_mux_reg == 2'b00) ? alu_B_input:
 					(alu_B_mux_reg == 2'b10) ? sign_extend_reg:
 					(alu_B_mux_reg == 2'b11) ? Shift_left2_reg:
 					32'd4;  
@@ -1371,10 +1401,10 @@ module mycpu(
 	reg [31:0] rdata1_reg;
 	reg [31:0] rdata2_reg;
 
-	assign wdata =  ({32{memtoreg4 == 3'b1}} & Read_data_result) |
-					({32{memtoreg4 == 3'b0}} & ALU_out4) |
-					({32{memtoreg4 == 3'b10}} & HI_reg4) |
-					({32{memtoreg4 == 3'b11}} & LO_reg4) |
+	assign wdata =  ({32{memtoreg4 == 3'b1}} & Read_data_result)    |
+					({32{memtoreg4 == 3'b0}} & ALU_out4)            |
+					({32{memtoreg4 == 3'b10}} & HI_reg4)            |
+					({32{memtoreg4 == 3'b11}} & LO_reg4)            |
 					({32{memtoreg4 == 3'd4}} & cp0_read_data4);/////////////??????????????????????????????????
 
 
@@ -1428,7 +1458,7 @@ module mycpu(
 	wire PC_choose;
 	wire PC_change;
 
-	assign PC = ((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid) ? 32'hbfc00380 :
+	assign PC = ((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid) ? 32'hbfc00380 :
 				(branch_or_not_input && pipe2_valid && counter_branch) ? (pipe1_PC + Shift_left2_reg) :
 				(jump_or_not && pipe2_valid && counter_branch) ? jump_target :
 				(eret && pipe2_valid && counter_branch) ? cp0_epc :
@@ -1443,7 +1473,7 @@ module mycpu(
 		begin 
 			PC_reg <= 32'hbfc00000;	
 		end
-		else if	((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
+		else if	((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
 		begin
 			PC_reg <= 32'hbfc00380;
 		end
@@ -1469,9 +1499,10 @@ module mycpu(
 		end
 		else if (PC_write )
 		begin
-		
-			if (PC_choose)	PC_reg <= 32'b0;
-			else PC_reg <= PC_reg + 32'd4;
+			if (irp_counter[0] && (irp_counter3 == 2'b11 || irp_counter3 == 2'b01) )
+            begin
+                PC_reg <= PC_reg + 32'd4;
+            end
 		end
 		else
 		begin
@@ -1479,8 +1510,53 @@ module mycpu(
 		end		
 	end
 
+    reg[1:0] irp_counter;
+    always@(posedge clk)
+	begin
+		if(rst )
+		begin
+			irp_counter <= 2'b01;
+		end
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
+		begin
+			irp_counter <= 2'b11;
+		end
+        else if(((pipe2_data_in[31:26] == 6'b010000) && (pipe2_data_in[25] == 1'b1) && (pipe2_data_in[24:6] == 19'b0) &&(pipe2_data_in[5:0] == `ERET)) && pipe2_valid  && !counter_lw_choke)
+        begin
+			irp_counter <= 2'b11;
+		end
+		else if((irp_counter == 2'b11) && inst_sram_data_ok)
+		begin
+			irp_counter <= 2'b10;
+		end
+        else if((irp_counter == 2'b10) && inst_sram_data_ok)
+		begin
+			irp_counter <= 2'b01;
+		end
+	end
+
+    reg[1:0] irp_counter3;
+    always@(posedge clk)
+	begin
+		if(rst )
+		begin
+			irp_counter3 <= 2'b01;
+		end
+		/*else if((irp_address_sw3 || irp_address_lw3 || irp_overflow3)&& pipe3_valid && !inst_sram_data_ok)
+		begin
+			irp_counter3 <= 2'b10;
+		end
+		else if((irp_counter3 == 2'b10) && inst_sram_data_ok)
+		begin
+			irp_counter3 <= 2'b11;
+		end
+        else if(irp_counter3 <= 2'b11)
+		begin
+			irp_counter3 <= 2'b01;
+		end*/
+	end
+
 	assign PC_write = pipe1_allowin;
-	assign PC_choose = 1'b0;
 
 	wire branch_or_not_input;
 	reg branch_or_not_reg;
@@ -1511,7 +1587,7 @@ module mycpu(
 	wire branch_choke ;
     assign branch_choke = branch_op && forwarding ;
     wire branch_valid;
-    assign branch_valid = (lw_choke_r1_reg || lw_choke_r2_reg) && !pipe3_readyout ||counter_lw_choke;
+    assign branch_valid = (lw_choke_r1_reg || lw_choke_r2_reg) && (!pipe3_readyout ||counter_lw_choke);
 	wire counter_branch;
 	assign counter_branch = 1'b1;
 	/*reg  counter_branch;
@@ -1766,8 +1842,8 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
     end
 
 
-	assign LO_wen = (op_mul_reg && counter_mul_choke && pipe2_valid) || (mtlo_reg && !mtlo_reg_history && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)) || (op_div_reg && div_complete && pipe2_valid);
-	assign HI_wen = (op_mul_reg && counter_mul_choke && pipe2_valid) || (mthi_reg && !mthi_reg_history && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)) || (op_div_reg && div_complete && pipe2_valid);
+	assign LO_wen = (op_mul_reg && counter_mul_choke && pipe2_valid) || (mtlo_reg && !mtlo_reg_history && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)) || (op_div_reg && div_complete );//&& pipe2_valid);
+	assign HI_wen = (op_mul_reg && counter_mul_choke && pipe2_valid) || (mthi_reg && !mthi_reg_history && !(irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)) || (op_div_reg && div_complete );//&& pipe2_valid);
 
 	assign LO_data = ({32{mtlo_reg}} & alu_A_input) |
 					 ({32{op_mul_last_reg}} & mul_result[31:0]) |
@@ -1941,7 +2017,7 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin
 			counter_div_choke <= 6'b0; 
 		end
-		else if(op_div_reg && !div_complete_reg)
+		else if(op_div_reg && !div_complete_reg && !div_finished)
 		begin
 			counter_div_choke <= counter_div_choke + 6'b1;
 		end
@@ -1961,6 +2037,23 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		else 
 		begin
 			op_div_last_reg <= op_div_reg;
+		end
+	end
+
+    reg div_finished;
+	always@(posedge clk)
+	begin
+		if(rst)
+		begin
+			div_finished <= 1'b0; 
+		end
+        else if( pipe1_allowin)
+        begin
+			div_finished <= 1'b0;
+		end
+		else if( div_complete)
+		begin
+			div_finished <= 1'b1;
 		end
 	end
 
@@ -1989,7 +2082,7 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin
 			cp0_status_exl	<=	1'b0;
 		end
-		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)///////////???????????
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)///////////???????????
 		begin
 			cp0_status_exl	<=	1'b1;
 		end
@@ -2093,19 +2186,23 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin
 			cp0_cause_exccode	<= 5'h0c;
 		end
-		else if((irp_time3  || irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3)&& pipe3_valid)
+		else if((irp_time3  || irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3)&& pipe3_valid)
 		begin
 			cp0_cause_exccode	<= 5'h00;
 		end
-		else if(irp_support3 && pipe3_valid)
-		begin
-			cp0_cause_exccode	<= 5'h0a;
-		end
-		else if ((irp_inst3 || irp_address_lw3)&& pipe3_valid)
+		else if (irp_inst3 && pipe3_valid)
 		begin
 			cp0_cause_exccode	<= 5'h04;
 		end
-		else if (irp_address_sw3 && pipe3_valid)
+        else if(irp_support3 && pipe3_valid)
+		begin
+			cp0_cause_exccode	<= 5'h0a;
+		end
+        else if(irp_address_lw3 && pipe3_valid)
+        begin
+			cp0_cause_exccode	<= 5'h04;
+		end
+        else if (irp_address_sw3 && pipe3_valid)
 		begin
 			cp0_cause_exccode	<= 5'h05;
 		end
@@ -2117,7 +2214,7 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin
 			cp0_cause_bd 	<= 1'b0;
 		end
-		else if(((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid))
+		else if(((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid))
 		begin
 			cp0_cause_bd	<= slot_or_not_reg3;
 		end
@@ -2223,7 +2320,7 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin
 			cp0_epc <= 32'b0;
 		end
-		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3 || irp_ip0_3 || irp_address_sw3|| irp_address_lw3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3|| irp_address_lw3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3)&& pipe3_valid)
 		begin
 			if(slot_or_not_reg3)
 			begin
@@ -2314,5 +2411,4 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 			cp0_badvaddr 	<= ALU_out3;
 		end
 	end
-	
 endmodule
