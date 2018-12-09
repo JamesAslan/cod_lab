@@ -1,8 +1,9 @@
 `timescale 1ns / 1ps
-module cpu_axi_interface
+module mycpu_top
 (
-    input         clk,
-    input         resetn, 
+	input	[5:0] int,
+    input         aclk,
+    input         aresetn, 
 
     //------inst sram-like-------
     input          inst_req    ,
@@ -23,6 +24,12 @@ module cpu_axi_interface
     output    [31:0] data_rdata  ,
     output           data_addr_ok,
     output           data_data_ok,
+
+	//------debug------
+	output [31:0] 	debug_wb_pc,
+	output [3:0] 	debug_wb_rf_wen,
+	output [4:0] 	debug_wb_rf_wnum,
+	output [31:0] 	debug_wb_rf_wdata,
 
     //ar
     output  [3 :0] arid   ,
@@ -67,6 +74,36 @@ module cpu_axi_interface
     output  reg  bready 
 );
 
+mycpu mycpu(
+    aresetn		,
+	aclk			,
+
+    //------inst sram-like-------
+    inst_req    ,
+    inst_wr     ,
+    inst_size   ,
+    inst_addr   ,
+    inst_rdata  ,
+	inst_wdata  ,
+    inst_addr_ok,
+    inst_data_ok,
+    
+    //------data sram-like-------
+    data_req    ,
+    data_wr     ,
+    data_size   ,
+    data_addr   ,
+    data_wdata  ,
+    data_rdata  ,
+    data_addr_ok,
+    data_data_ok,
+
+	debug_wb_pc,
+	debug_wb_rf_wen,
+	debug_wb_rf_wnum,
+	debug_wb_rf_wdata
+	);
+
     assign arlen    = 8'b0;
     assign arburst   = 2'b01;
     assign arlock   = 2'b0;
@@ -90,34 +127,48 @@ module cpu_axi_interface
     assign bresp    = 2'b0;
 
     //rst
-    assign rst = !resetn;
+    assign rst = !aresetn;
 
     //////sram //////data
     //mode
     reg [1:0] data_mode;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             data_mode <= 1'b0;
         end
-        else if(mode_read)
+        else if(data_mode == 1'b1)
         begin
-            data_mode <= 1'b0;
+            if(bvalid == 1'b1)
+            begin
+                data_mode <= 1'b0;
+            end
         end
-        else if(mode_write)
+        else if(mode_change)
         begin
-            data_mode <= 1'b1;     
+            if(mode_read)
+            begin
+                data_mode <= 1'b0;
+            end
+            else
+            begin
+                data_mode <= 1'b1;
+            end
         end
     end
 
     reg [2:0] data_work_state;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             data_work_state <= 3'b0;
         end
+        /*else if(mode_change)
+        begin
+            data_work_state <= 3'b0;
+        end*/
         else if(data_work_state == 3'b0)
         begin
             if(data_addr_ok == 1'b1)
@@ -125,12 +176,17 @@ module cpu_axi_interface
                 data_work_state <= 3'b1;
             end
         end
-        else
+        else if(data_work_state == 3'b1)
         begin
-            data_work_state <= 3'b0;
+            if(data_data_ok == 1'b1)
+            begin
+                data_work_state <= 3'b0;
+            end
         end
     end
 
+    wire    mode_change;
+    assign  mode_change = data_req && (data_work_state == 1'b0);
     //reg [2:0] data_work_state_record;
 
     wire    mode_read;
@@ -138,12 +194,12 @@ module cpu_axi_interface
     assign  mode_read   = data_req && ~data_wr;
     assign  mode_write  = data_req && data_wr;
 
-    assign  data_addr_ok    = data_req;
-    assign  data_data_ok    = data_mode ? bvalid : ((source_reg2 == 2'd1) && rvalid && rready);
+    assign  data_addr_ok    = (data_work_state == 3'b0) && data_req;
+    assign  data_data_ok    = data_mode ? bvalid : ((source_reg == 2'b1) && rvalid && rready);
     assign  data_rdata      = rdata;
 
     reg [31:0] data_addr_reg;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
@@ -155,8 +211,21 @@ module cpu_axi_interface
         end
     end
 
+    reg [31:0] data_wdata_reg;
+    always @(posedge aclk)
+    begin
+        if(rst)
+        begin
+            data_wdata_reg <= 32'b0;
+        end
+        else if(data_addr_ok)
+        begin
+            data_wdata_reg <= data_wdata;
+        end
+    end
+
     reg [1:0] data_size_reg;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
@@ -169,6 +238,18 @@ module cpu_axi_interface
     end
 
     wire[3:0] task_wstrb;
+    reg [3:0] task_wstrb_reg;
+    always @(posedge aclk)
+    begin
+        if(rst)
+        begin
+            task_wstrb_reg <= 4'b0;
+        end
+        else if(data_addr_ok)
+        begin
+            task_wstrb_reg <= task_wstrb;
+        end
+    end
     assign task_wstrb = ({4{(data_size == 2'b00) && (data_addr[1:0] == 2'b00)}} & 4'b0001) |
                         ({4{(data_size == 2'b00) && (data_addr[1:0] == 2'b01)}} & 4'b0010) |
                         ({4{(data_size == 2'b00) && (data_addr[1:0] == 2'b10)}} & 4'b0100) |
@@ -179,7 +260,7 @@ module cpu_axi_interface
 
     //////sram //////inst
     reg [2:0] inst_work_state;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
@@ -192,18 +273,21 @@ module cpu_axi_interface
                 inst_work_state <= 3'b1;
             end
         end
-        else 
+        else if(inst_work_state == 3'b1)
         begin
-            inst_work_state <= 3'b0;
+            if(inst_data_ok == 1'b1)
+            begin
+                inst_work_state <= 3'b0;
+            end
         end
     end
 
-    assign  inst_addr_ok    = inst_req;
-    assign  inst_data_ok    = rready && rvalid && (source_reg2 == 2'd0);
+    assign  inst_addr_ok    = (inst_work_state == 3'b0) && inst_req;
+    assign  inst_data_ok    = rready && rvalid && (source_reg == 2'b0);
     assign  inst_rdata      = rdata;
 
     reg [31:0] inst_addr_reg;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
@@ -216,7 +300,7 @@ module cpu_axi_interface
     end
 
     reg [1:0] inst_size_reg;
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
@@ -231,82 +315,44 @@ module cpu_axi_interface
     ///////axi //////write
     wire write_allow;
     assign write_allow = 1'b1;
-    
-    reg axi_write_addr;
-    reg [31:0] data_reg1;
-    reg [3:0] wstrb_reg1;
-    reg axi_write_data;
-    reg [31:0] data_reg2;
-    reg [3:0] wstrb_reg2;
-    reg axi_write_finish;
-    always @(posedge clk)
+
+    reg [2:0] axi_write_state;
+    always @(posedge aclk)
     begin
         if(rst)
         begin
-            axi_write_addr <= 1'b0;
-            data_reg1 <= 32'b0;
-            wstrb_reg1 <= 4'b0;
+            axi_write_state <= 3'd0;
         end
-        else if(data_addr_ok == 1'b1 && mode_write)
+        else if((axi_write_state == 3'd0) && ((data_work_state == 3'd1) || (data_addr_ok == 1'b1)) && data_mode)
         begin
-            axi_write_addr <= 1'b1;
-            data_reg1 <= data_wdata;
-            wstrb_reg1 <= task_wstrb;
+            axi_write_state <= 3'd1;
         end
-        else if((awvalid == 1'b1) && (awready == 1'b1))
+        else if((axi_write_state == 3'd1) && (awvalid == 1'b1) && (awready == 1'b1))
         begin
-            axi_write_addr <= 1'b0;
+            axi_write_state <= 3'd2;
+        end
+        else if((axi_write_state == 3'd2) && (wvalid == 1'b1) && (wready == 1'b1))
+        begin
+            axi_write_state <= 3'd3;
+        end
+        else if((axi_write_state == 3'd3) && (bready == 1'b1) && (bvalid == 1'b1))
+         begin
+            axi_write_state <= 3'd0;
         end
     end
 
-    always @(posedge clk)
-    begin
-        if(rst)
-        begin
-            axi_write_data <= 1'b0;
-            data_reg2 <= 32'b0;
-            wstrb_reg2 <= 4'b0;
-        end
-        else if((axi_write_addr == 1'b1) && (awvalid == 1'b1) && (awready == 1'b1))
-        begin
-            axi_write_data <= 1'b1;
-            data_reg1 <= data_reg2;
-            wstrb_reg2 <= wstrb_reg1;
-        end
-        else if((wvalid == 1'b1) && (wready == 1'b1))
-        begin
-            axi_write_data <= 1'b0;
-        end
-    end
-
-    always @(posedge clk)
-    begin
-        if(rst)
-        begin
-            axi_write_finish <= 1'b0;
-        end
-        else if((axi_write_data == 1'b1) && (wvalid == 1'b1) && (wready == 1'b1))
-        begin
-            axi_write_finish <= 1'b1;
-        end
-        else if((bready == 1'b1) && (bvalid == 1'b1))
-        begin
-            axi_write_finish <= 1'b0;
-        end
-    end
-
-    assign awaddr   =   data_addr_reg;
+    assign awaddr   = data_addr_reg;
     assign awsize   =   (data_size_reg == 2'd0) ? 3'd1 :
                         (data_size_reg == 2'd1) ? 3'd2 :
                         3'd4;
 
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             awvalid <= 1'b0;
         end
-        else if(axi_write_addr == 1'd1)
+        else if((axi_write_state == 3'd1) && (awvalid == 1'b0))
         begin
             awvalid <= 1'b1;
         end
@@ -316,16 +362,16 @@ module cpu_axi_interface
         end
     end
 
-    assign wdata    = data_reg2;
-    assign wstrb    = wstrb_reg2;
+    assign wdata    = data_wdata_reg;
+    assign wstrb    = task_wstrb_reg;
 
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             wvalid <= 1'b0;
         end
-        else if(axi_write_data == 1'b1)
+        else if((axi_write_state == 3'd2) && (wvalid == 1'b0))
         begin
             wvalid <= 1'b1;
         end
@@ -335,13 +381,13 @@ module cpu_axi_interface
         end
     end
 
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             bready <= 1'b0;
         end
-        else if(axi_write_finish == 1'b1)
+        else if((axi_write_state == 3'd3) && (bready == 1'b0))
         begin
             bready <= 1'b1;
         end
@@ -352,69 +398,80 @@ module cpu_axi_interface
     end
 
     ///////axi //////read
-    reg axi_read_addr;
-    reg source_reg1;
-    reg [31:0] read_addr_reg;
-    reg [1:0] read_size_reg;
-    reg axi_read_finish;
-    reg source_reg2;
-
-    always @(posedge clk)
+    reg [1:0]source;
+    always @(posedge aclk)
     begin
         if(rst)
         begin
-            axi_read_addr <= 1'b0;
-            source_reg1 <= 2'd2;
-            read_addr_reg <= 32'b0;
-            read_size_reg <= 2'b2;
+            source <= 2'd2;
         end
-        else if(source != 2'd2)
+		else if((inst_work_state == 1'b1) && (source == 2'd2) && !inst_data_ok)
         begin
-            axi_read_addr <= 1'b1;
-            source_reg1 <= source;
-            read_addr_reg <= (source == 2'd0) ? inst_addr_reg : data_addr_reg;
-            read_size_reg <= (source == 2'd0) ? inst_size_reg : data_size_reg;
+            source <= 2'd0;
         end
-        else if((arvalid == 1'b1) && (arready == 1'b1))
+		else if((data_work_state == 1'b1) && (data_mode == 1'b0) && (source == 2'd2) && !data_data_ok)
         begin
-            axi_read_addr <= 1'b0;
+            source <= 2'd1;
+        end
+        else if(rvalid == 1'b1)
+        begin
+            source <= 2'd2;
         end
     end
 
-    always @(posedge clk)
+    reg[1:0] source_reg;
+    always @(posedge aclk)
     begin
         if(rst)
         begin
-            axi_read_finish <= 1'b0;
-            source_reg2 <= 2'd2;
+            source_reg <= 2'd2;
         end
-        else if((axi_read_addr == 1'b1) && (arvalid == 1'b1) && (arready == 1'b1))
+        else if(arvalid && arready)
         begin
-            axi_read_finish <= 1'b1;
-            source_reg2 <= source_reg1;
+            source_reg <= source;
         end
-        else if((rvalid == 1'b1) && (rready == 1'b1))
+        else if(rvalid && rready)
         begin
-            axi_read_finish <= 1'b0;
+            source_reg <= 2'd2;
         end
     end
 
-    wire [1:0]source;
-    assign source = (inst_addr_ok == 1'b1) ? 2'd0 :
-                    (((data_addr_ok == 1'b1) && mode_read) || ((data_work_state == 1'b1) && (data_mode == 1'b0))) ? 2'd1 :
-                    2'd2;
 
-    assign arid     = source_reg1[0];
-    assign araddr  = read_addr_reg;
-    assign arsize   = read_size_reg;
+    wire [2:0] state_input;
+    assign state_input = arid ? (((data_work_state == 3'd1) || (data_addr_ok == 1'b1)) && (data_mode == 1'b0)) : ((inst_work_state == 3'd1) || (inst_addr_ok == 1'b1));
 
-    always @(posedge clk)
+    reg [2:0] axi_read_state;
+    always @(posedge aclk)
+    begin
+        if(rst)
+        begin
+            axi_read_state <= 3'd0;
+        end
+        else if((axi_read_state == 3'd0) && state_input)
+        begin
+            axi_read_state <= 3'd1;
+        end
+        else if((axi_read_state == 3'd1) && (arvalid == 1'b1) && (arready == 1'b1))
+        begin
+            axi_read_state <= 3'd2;
+        end
+        else if((axi_read_state == 3'd2) && (rvalid == 1'b1) && (rready == 1'b1))
+         begin
+            axi_read_state <= 3'd0;
+        end
+    end
+
+    assign arid     = source[0];
+    assign araddr  = arid ? data_addr_reg : inst_addr_reg;
+    assign arsize   = arid ? data_size_reg : inst_size_reg;
+
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             arvalid <= 1'b0;
         end
-        else if(axi_read_addr == 1'b1)
+        else if((axi_read_state == 3'd1) && (arvalid == 1'b0))
         begin
             arvalid <= 1'b1;
         end
@@ -424,13 +481,13 @@ module cpu_axi_interface
         end
     end
 
-    always @(posedge clk)
+    always @(posedge aclk)
     begin
         if(rst)
         begin
             rready <= 1'b0;
         end
-        else if(axi_read_finish == 1'b1s)
+        else if((axi_read_state == 3'd2) && (rready == 1'b0))
         begin
             rready <= 1'b1;
         end
