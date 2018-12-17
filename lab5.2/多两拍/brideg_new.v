@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
-module cpu_axi_interface
+module bridge
 (
 	//input	[5:0] int,
-    input         clk,
-    input         resetn, 
+    input         aclk,
+    input         aresetn, 
 
     //------inst sram-like-------
     input          inst_req    ,
@@ -115,7 +115,7 @@ mycpu mycpu(
     cpu_debug_wb_rf_wnum,
     cpu_debug_wb_rf_wdata
 	);*/
-    assign aclk =clk;
+
     assign arlen    = 8'b0;
     assign arburst   = 2'b01;
     assign arlock   = 2'b0;
@@ -139,7 +139,7 @@ mycpu mycpu(
     assign bresp    = 2'b0;
 
     //rst
-    assign rst = !resetn;
+    assign rst = !aresetn;
 
     //////sram //////data
     //mode
@@ -411,7 +411,7 @@ mycpu mycpu(
     end
 
     assign wdata    = data_wdata_reg;
-    assign wstrb    = task_wstrb_reg;
+    assign wstrb    = data_wstrb_reg;
 
     always @(posedge aclk)
     begin

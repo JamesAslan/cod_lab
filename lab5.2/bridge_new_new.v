@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
-module cpu_axi_interface
+module bridge
 (
 	//input	[5:0] int,
-    input         clk,
-    input         resetn, 
+    input         aclk,
+    input         aresetn, 
 
     //------inst sram-like-------
     input          inst_req    ,
@@ -115,7 +115,7 @@ mycpu mycpu(
     cpu_debug_wb_rf_wnum,
     cpu_debug_wb_rf_wdata
 	);*/
-    assign aclk =clk;
+
     assign arlen    = 8'b0;
     assign arburst   = 2'b01;
     assign arlock   = 2'b0;
@@ -139,7 +139,7 @@ mycpu mycpu(
     assign bresp    = 2'b0;
 
     //rst
-    assign rst = !resetn;
+    assign rst = !aresetn;
 
     //////sram //////data
     //mode
@@ -170,6 +170,19 @@ mycpu mycpu(
         end
     end
 
+    reg [31:0]data;
+    always @(posedge aclk)
+    begin
+        if(rst)
+        begin
+            data <= 32'b0;
+        end
+        else if(rvalid)
+        begin
+            data <= rdata;
+        end
+    end
+
     reg [2:0] data_work_state;
     always @(posedge aclk)
     begin
@@ -190,14 +203,10 @@ mycpu mycpu(
         end
         else if(data_work_state == 3'b1)
         begin
-            if(data_data_ready == 1'b1)
+            if(data_data_ok == 1'b1)
             begin
-                data_work_state <= 3'd2;
+                data_work_state <= 3'd0;
             end
-        end
-        else if(data_work_state == 3'd2)
-        begin
-            data_work_state <= 3'b0;
         end
     end
 
@@ -211,22 +220,8 @@ mycpu mycpu(
     assign  mode_write  = data_req && data_wr;
 
     assign  data_addr_ok    = (data_work_state == 3'b0) && data_req;
-    assign  data_data_ready = data_mode ? bvalid : ((source_reg == 2'b1) && rvalid && rready);
-    assign  data_data_ok    = (data_work_state == 3'd2);
+    assign  data_data_ok = data_mode ? bvalid : ((source == 2'd1) && rvalid && rready);
     assign  data_rdata      = data;
-
-    reg [31:0]data;
-    always @(posedge aclk)
-    begin
-        if(rst)
-        begin
-            data <= 32'b0;
-        end
-        else if(data_data_ready || inst_data_ready)
-        begin
-            data <= rdata;
-        end
-    end
 
     reg [31:0] data_addr_reg;
     always @(posedge aclk)
@@ -318,20 +313,15 @@ mycpu mycpu(
         end
         else if(inst_work_state == 3'b1)
         begin
-            if(inst_data_ready == 1'b1)
+            if(inst_data_ok == 1'b1)
             begin
-                inst_work_state <= 3'd2;
+                inst_work_state <= 3'd0;
             end
-        end
-        else if(inst_work_state == 3'd2)
-        begin
-            inst_work_state <= 3'b0;
         end
     end
 
     assign  inst_addr_ok    = (inst_work_state == 3'b0) && inst_req;
-    assign  inst_data_ready = rready && rvalid && (source_reg == 2'b0);
-    assign  inst_data_ok    = (inst_work_state == 3'd2);
+    assign  inst_data_ok = rready && rvalid && (source == 2'b0);
     assign  inst_rdata      = data;
 
     reg [31:0] inst_addr_reg;
@@ -411,7 +401,7 @@ mycpu mycpu(
     end
 
     assign wdata    = data_wdata_reg;
-    assign wstrb    = task_wstrb_reg;
+    assign wstrb    = data_wstrb_reg;
 
     always @(posedge aclk)
     begin
@@ -453,34 +443,21 @@ mycpu mycpu(
         begin
             source <= 2'd2;
         end
-		else if((inst_work_state == 1'b1) && (source == 2'd2) && !inst_data_ready)
+		else if((inst_work_state == 1'b1) && (source == 2'd2) && !inst_data_ok)
         begin
             source <= 2'd0;
         end
-		else if((data_work_state == 1'b1) && (data_mode == 1'b0) && (source == 2'd2) && !data_data_ready)
+		else if((data_work_state == 1'b1) && (data_mode == 1'b0) && (source == 2'd2) && !data_data_ok)
         begin
             source <= 2'd1;
         end
-        else if(rvalid == 1'b1)
+        else if(source == 2'd0 && inst_data_ok)
         begin
             source <= 2'd2;
         end
-    end
-
-    reg[1:0] source_reg;
-    always @(posedge aclk)
-    begin
-        if(rst)
+        else if(source == 2'd1 && data_data_ok)
         begin
-            source_reg <= 2'd2;
-        end
-        else if(arvalid && arready)
-        begin
-            source_reg <= source;
-        end
-        else if(rvalid && rready)
-        begin
-            source_reg <= 2'd2;
+            source <= 2'd2;
         end
     end
 

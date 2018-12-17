@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
-module cpu_axi_interface
+module bridge
 (
 	//input	[5:0] int,
-    input         clk,
-    input         resetn, 
+    input         aclk,
+    input         aresetn, 
 
     //------inst sram-like-------
     input          inst_req    ,
@@ -25,12 +25,6 @@ module cpu_axi_interface
     output    [31:0] data_rdata  ,
     output           data_addr_ok,
     output           data_data_ok,
-
-	//------debug------
-	//output [31:0] 	debug_wb_pc,
-	//output [3:0] 	debug_wb_rf_wen,
-	//output [4:0] 	debug_wb_rf_wnum,
-	//output [31:0] 	debug_wb_rf_wdata,
 
     //ar
     output  [3 :0] arid   ,
@@ -75,47 +69,6 @@ module cpu_axi_interface
     output  reg  bready 
 );
 
-/*assign  debug_wb_pc = cpu_debug_wb_pc;
-assign  debug_wb_rf_wen = cpu_debug_wb_rf_wen;
-assign  debug_wb_rf_wnum = cpu_debug_wb_rf_wnum;
-assign  debug_wb_rf_wdata = cpu_debug_wb_rf_wdata;
-
-wire    cpu_debug_wb_pc;
-wire    cpu_debug_wb_rf_wen;
-wire    cpu_debug_wb_rf_wnum;
-wire    cpu_debug_wb_rf_wdata;
-
-mycpu mycpu(
-    aresetn		,
-	aclk		,
-
-    //------inst sram-like-------
-    inst_req    ,
-    inst_wr     ,
-    inst_size   ,
-    inst_addr   ,
-    inst_rdata  ,
-	inst_wdata  ,
-    inst_addr_ok,
-    inst_data_ok,
-    
-    //------data sram-like-------
-    data_req    ,
-    data_wr     ,
-    data_size   ,
-    data_addr   ,
-    data_wdata  ,
-    data_wstrb  ,
-    data_rdata  ,
-    data_addr_ok,
-    data_data_ok,
-
-	cpu_debug_wb_pc,
-    cpu_debug_wb_rf_wen,
-    cpu_debug_wb_rf_wnum,
-    cpu_debug_wb_rf_wdata
-	);*/
-    assign aclk =clk;
     assign arlen    = 8'b0;
     assign arburst   = 2'b01;
     assign arlock   = 2'b0;
@@ -123,7 +76,6 @@ mycpu mycpu(
     assign arprot   = 3'b0;
 
     assign rresp   = 2'b0;
-    //assign rlast   = 1'b0;
 
     assign awid     = 3'b1;
     assign awlen    = 8'b0;
@@ -135,11 +87,11 @@ mycpu mycpu(
     assign wid      = 4'b1;
     assign wlast    = 1'b1;
 
-    //assign bid      = 4'b0;/////????????
     assign bresp    = 2'b0;
 
     //rst
-    assign rst = !resetn;
+    wire rst;
+    assign rst = !aresetn;
 
     //////sram //////data
     //mode
@@ -190,14 +142,10 @@ mycpu mycpu(
         end
         else if(data_work_state == 3'b1)
         begin
-            if(data_data_ready == 1'b1)
+            if(data_data_ok == 1'b1)
             begin
-                data_work_state <= 3'd2;
+                data_work_state <= 3'd0;
             end
-        end
-        else if(data_work_state == 3'd2)
-        begin
-            data_work_state <= 3'b0;
         end
     end
 
@@ -211,22 +159,8 @@ mycpu mycpu(
     assign  mode_write  = data_req && data_wr;
 
     assign  data_addr_ok    = (data_work_state == 3'b0) && data_req;
-    assign  data_data_ready = data_mode ? bvalid : ((source_reg == 2'b1) && rvalid && rready);
-    assign  data_data_ok    = (data_work_state == 3'd2);
-    assign  data_rdata      = data;
-
-    reg [31:0]data;
-    always @(posedge aclk)
-    begin
-        if(rst)
-        begin
-            data <= 32'b0;
-        end
-        else if(data_data_ready || inst_data_ready)
-        begin
-            data <= rdata;
-        end
-    end
+    assign  data_data_ok = data_mode ? bvalid : ((source_reg == 2'b1) && rvalid && rready);
+    assign  data_rdata      = data_data_ok ? rdata : 32'b0;
 
     reg [31:0] data_addr_reg;
     always @(posedge aclk)
@@ -318,21 +252,16 @@ mycpu mycpu(
         end
         else if(inst_work_state == 3'b1)
         begin
-            if(inst_data_ready == 1'b1)
+            if(inst_data_ok == 1'b1)
             begin
-                inst_work_state <= 3'd2;
+                inst_work_state <= 3'd0;
             end
-        end
-        else if(inst_work_state == 3'd2)
-        begin
-            inst_work_state <= 3'b0;
         end
     end
 
     assign  inst_addr_ok    = (inst_work_state == 3'b0) && inst_req;
-    assign  inst_data_ready = rready && rvalid && (source_reg == 2'b0);
-    assign  inst_data_ok    = (inst_work_state == 3'd2);
-    assign  inst_rdata      = data;
+    assign  inst_data_ok = rready && rvalid && (source_reg == 2'b0);
+    assign  inst_rdata      = inst_data_ok ? rdata : 32'b0;
 
     reg [31:0] inst_addr_reg;
     always @(posedge aclk)
@@ -411,7 +340,7 @@ mycpu mycpu(
     end
 
     assign wdata    = data_wdata_reg;
-    assign wstrb    = task_wstrb_reg;
+    assign wstrb    = data_wstrb_reg;
 
     always @(posedge aclk)
     begin
@@ -453,11 +382,11 @@ mycpu mycpu(
         begin
             source <= 2'd2;
         end
-		else if((inst_work_state == 1'b1) && (source == 2'd2) && !inst_data_ready)
+		else if((inst_work_state == 1'b1) && (source == 2'd2) && !inst_data_ok)
         begin
             source <= 2'd0;
         end
-		else if((data_work_state == 1'b1) && (data_mode == 1'b0) && (source == 2'd2) && !data_data_ready)
+		else if((data_work_state == 1'b1) && (data_mode == 1'b0) && (source == 2'd2) && !data_data_ok)
         begin
             source <= 2'd1;
         end

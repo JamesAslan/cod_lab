@@ -140,8 +140,8 @@ module mycpu(
 
 	assign data_sram_en = (MemRead | MemWrite) && data_state[0];
     assign data_sram_wr = MemWrite;
-	assign data_sram_wen = {MemWrite,MemWrite,MemWrite,MemWrite}& Write_strb;
-	assign data_sram_addr = Address & 32'h1fffffff;
+	assign data_sram_wen = /*{MemWrite,MemWrite,MemWrite,MemWrite}& */Write_strb;
+	assign data_sram_addr = Address ;//& 32'h1fffffff;
 	assign Read_data = data_sram_rdata;
 	assign data_sram_wdata = Write_data;
 
@@ -274,14 +274,15 @@ module mycpu(
 		begin
 			pipe1_valid <= 1'b1;
 		end
-		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3 || ((pipe2_data_in[31:26] == 6'b010000) && (pipe2_data_in[25] == 1'b1) && (pipe2_data_in[24:6] == 19'b0) &&(pipe2_data_in[5:0] == `ERET))) && pipe3_valid)
-		begin
-			pipe1_valid <= 1'b0;
-		end
 		else if(pipe1_allowin)
 		begin
 			pipe1_valid <= validin;
 		end
+		else if((irp_ip2_3 || irp_ip3_3 || irp_ip4_3 || irp_ip5_3 || irp_ip6_3 || irp_ip7_3 || irp_ip1_3|| irp_ip0_3 || irp_address_sw3 || irp_address_lw3 || irp_inst3 || irp_support3 || irp_time3 || irp_overflow3 || break_info3 || syscall_info3 || ((pipe2_data_in[31:26] == 6'b010000) && (pipe2_data_in[25] == 1'b1) && (pipe2_data_in[24:6] == 19'b0) &&(pipe2_data_in[5:0] == `ERET))) && pipe3_valid)
+		begin
+			pipe1_valid <= 1'b0;
+		end
+		
 		if(rst)
 		begin
 			pipe1_PC <= 32'b0;
@@ -1499,7 +1500,7 @@ module mycpu(
 		end
 		else if (PC_write )
 		begin
-			if (irp_counter[0] && (irp_counter3 == 2'b11 || irp_counter3 == 2'b01) )
+			if (irp_counter[0])
             begin
                 PC_reg <= PC_reg + 32'd4;
             end
@@ -1815,7 +1816,7 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin 
 			LO <= 32'b0;
 		end	
-		else if(LO_wen)
+		else  if(LO_wen)
 		begin 
 			LO <= LO_data;
 		end
@@ -2017,7 +2018,11 @@ assign Write_data =		({32{mem_sb}} & sb_data) |
 		begin
 			counter_div_choke <= 6'b0; 
 		end
-		else if(op_div_reg && !div_complete_reg && !div_finished)
+		else if(counter_div_choke == 6'b0 && op_div_reg && !div_complete_reg && !div_finished)
+		begin
+			counter_div_choke <= counter_div_choke + 6'b1;
+		end
+		else if(op_div_reg && !div_complete_reg && !div_finished && !div_choke_input)
 		begin
 			counter_div_choke <= counter_div_choke + 6'b1;
 		end
